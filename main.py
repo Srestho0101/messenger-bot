@@ -67,11 +67,30 @@ async def handle_webhook(request: Request):
 # ------------------------------------------------------------------
 def generate_gemini_response(prompt: str) -> str:
     try:
+        # We can add a system instruction or prepend a rule to keep it brief for Messenger
+        full_prompt = (
+            "You are a helpful assistant inside a Facebook Messenger chat. "
+            "The Facebook Page is named Pixedit. "
+            "It's for Pixel IT. Pixel IT is a computer repairing and selling shop. "
+            "Your name is Pixagent. You are an AI assistant for Pixel IT. "
+            "Your developer, and the owner of this page is Srestho. His portfolio is: srestho.online. "
+            "Keep your answers concise, engaging, and strictly under 1800 characters. "
+            f"User says: {prompt}"
+        )
+        
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=prompt,
+            contents=full_prompt,
         )
-        return response.text.strip()
+        
+        reply_text = response.text.strip()
+        
+        # Fallback safety check: truncate if it somehow exceeds 2000 characters
+        if len(reply_text) > 2000:
+            reply_text = reply_text[:1990] + "...\n(Response truncated due to length)"
+            
+        return reply_text
+        
     except Exception as e:
         print(f"[GEMINI ERROR] {e}")
         return "I am Groot. (Oops, my AI brain hit an error!)"
