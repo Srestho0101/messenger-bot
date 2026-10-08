@@ -2,19 +2,23 @@ import os
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
+from google import genai
 
 app = FastAPI()
 
-# Fetch environment variables from Render (or defaults for testing)
+# Fetch environment variables
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "ndswqauigedaqty23bvgq8317y839erfiyh3n4hn09tr5g38ewy49h8hgy")
 
+# Initialize the Google GenAI client (picks up GEMINI_API_KEY from Render env)
+ai_client = genai.Client()
+
 # ------------------------------------------------------------------
-# Root Endpoint (Optional sanity check)
+# Root Endpoint
 # ------------------------------------------------------------------
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Messenger Bot is active"}
+    return {"status": "ok", "message": "Messenger Bot with Gemini is active"}
 
 # ------------------------------------------------------------------
 # 1. GET /webhook -> Webhook Verification
@@ -25,18 +29,13 @@ async def verify_webhook(request: Request):
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
-    print(f"[VERIFY] Received mode: {mode}, token: {token}")
-
     if mode == "subscribe" and token == VERIFY_TOKEN:
-        print("[VERIFY] Verification SUCCESS! Returning challenge.")
-        # Must return raw challenge string with text/plain content-type and 200 OK status
         return Response(content=challenge, media_type="text/plain", status_code=200)
 
-    print("[VERIFY] Verification FAILED! Token or mode mismatch.")
     raise HTTPException(status_code=403, detail="Verification token mismatch")
 
 # ------------------------------------------------------------------
-# 2. POST /webhook -> Receive Incoming Messages
+# 2. POST /webhook -> Receive Incoming Messages & Generate AI Reply
 # ------------------------------------------------------------------
 @app.post("/webhook")
 async def handle_webhook(request: Request):
@@ -47,17 +46,35 @@ async def handle_webhook(request: Request):
             for event in entry.get("messaging", []):
                 message = event.get("message")
                 
-                # Check that it's a standard user message (not an echo sent by the page)
-                if message and not message.get("is_echo"):
+                # Check that it's a standard user message (not an echo)
+                if message and not message.get("is_echo") and "text" in message:
                     sender_psid = event["sender"]["id"]
-                    print(f"[POST] Received message from PSID: {sender_psid}")
+                    user_text = message["text"]
+                    print(f"[MESSAGE] Received from {sender_psid}: {user_text}")
 
-                    # Reply with "I am Groot."
-                    await send_text_message(sender_psid, "I am Groot.")
+                    # Generate AI response using Gemini
+                    ai_reply = generate_gemini_response(user_text)
+
+                    # Send reply back to user via Messenger
+                    await send_text_message(sender_psid, ai_reply)
 
         return Response(content="EVENT_RECEIVED", status_code=200)
 
     raise HTTPException(status_code=404, detail="Unknown object type")
+
+# ------------------------------------------------------------------
+# Helper: Generate Response with Gemini
+# ------------------------------------------------------------------
+def generate_gemini_response(prompt: str) -> str:
+    try:
+        response = ai_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        return response.text.strip()
+    except Exception as e:
+        print(f"[GEMINI ERROR] {e}")
+        return "I am Groot. (Oops, my AI brain hit an error!)"
 
 # ------------------------------------------------------------------
 # Helper: Send Message via Meta Graph API
@@ -73,12 +90,12 @@ async def send_text_message(recipient_id: str, text: str):
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload)
         if response.status_code == 200:
-            print("[REPLY] 'I am Groot.' sent successfully!")
+            print("[REPLY] AI response sent successfully!")
         else:
             print(f"[REPLY ERROR] {response.status_code}: {response.text}")
 
 # ------------------------------------------------------------------
-# Entry Point for Production (Render PORT binding)
+# Entry Point for Production
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 3000))
