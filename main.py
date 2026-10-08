@@ -65,7 +65,6 @@ async def handle_webhook(request: Request):
 # ------------------------------------------------------------------
 # Helper: Generate Response with Gemini
 # ------------------------------------------------------------------
-```python
 def generate_gemini_response(prompt: str) -> str:
     system_prompt = """
 You are Pixagent 🤖, a high-energy Gen-Z AI assistant created by Srestho.
@@ -130,7 +129,6 @@ Keep replies concise. Stay under 1800 characters.
     except Exception as e:
         print(f"[GEMINI ERROR] {e}")
         return "Bro, my AI brain hit an error 💀 Try again in a moment."
-```
 
 
 # ------------------------------------------------------------------
